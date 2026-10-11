@@ -7,7 +7,7 @@ from src.spotifyService import SpotifyService
 displayHandler = DisplayHandler()
 buttonHandler = ButtonHandler()
 
-client = SerialClient()
+client = SerialClient(timeout=10)
 spotifyService = SpotifyService(client)
 
 menuScreen = MenuScreen(displayHandler)

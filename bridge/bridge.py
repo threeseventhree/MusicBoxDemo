@@ -1,11 +1,15 @@
 # pip install pyserial requests
 import json
+import time
 import serial
 import requests
+from artwork import getArtwork
 
 PORT = "COM5"
 BASE_URL = "https://musicbox-kohl.vercel.app"   # your deployed Next.js app
-HTTP_TIMEOUT = 4    # must stay under the ESP32's 5 s wait
+HTTP_TIMEOUT = 4    # keep requests short so replies come back quickly
+CHUNK = 32          # the ESP32's serial input buffer is small, so send replies in pieces
+CHUNK_DELAY = 0.02
 
 sessionID = None
 
@@ -33,9 +37,25 @@ def handle(path):
     if path == "/spotify/currently-playing":
         if not sessionID:
             return None
-        return api("GET", f"/api/sessions/{sessionID}/currently-playing")
+        track = api("GET", f"/api/sessions/{sessionID}/currently-playing")
+        url = track.pop("artworkURL", None)
+        if track.get("playing") and url:
+            try:
+                track["artwork"] = getArtwork(url)
+            except Exception as e:
+                print("  artwork failed:", e)    # still send the track without a cover
+        return track
 
     return {"error": "not found"}
+
+
+def send(text):
+    data = text.encode()
+    print("  reply:", len(data), "bytes")
+    for i in range(0, len(data), CHUNK):
+        ser.write(data[i:i + CHUNK])
+        ser.flush()
+        time.sleep(CHUNK_DELAY)
 
 
 ser = serial.Serial()
@@ -57,6 +77,6 @@ while True:
         except Exception as e:
             print("  error:", e)
             reply = {"error": str(e)}
-        ser.write(("@RES " + json.dumps(reply) + "\n").encode())
+        send("@RES " + json.dumps(reply) + "\n")
     elif line:
         print("[esp32]", line)

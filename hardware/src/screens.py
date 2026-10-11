@@ -1,5 +1,9 @@
 from time import time, sleep
+import framebuf  # type: ignore
+import ubinascii  # type: ignore
 from src.display import DisplayHandler
+
+
 class MenuScreen:
     def __init__(self, displayHandler: DisplayHandler):
         self.displayHandler = displayHandler
@@ -25,6 +29,7 @@ class MenuScreen:
         elif self.cursorPos == 2:
             self.displayHandler.screen = "settings"
 
+
 class RecognizeScreen:
     def __init__(self, displayHandler: DisplayHandler):
         self.displayHandler = displayHandler
@@ -38,6 +43,7 @@ class RecognizeScreen:
     def listen(self):
         print("Testing nowPlaying")
 
+
 class SpotifyScreen:
     def __init__(self, displayHandler: DisplayHandler, spotifyService):
         self.displayHandler = displayHandler
@@ -48,6 +54,8 @@ class SpotifyScreen:
         self.nowPlayingActive = False
         self.lastUpdate = 0
         self.updateInterval = 5
+        self.artKey = None
+        self.artBuffer = None
 
     def show(self):
         self.nowPlayingActive = False
@@ -136,11 +144,29 @@ class SpotifyScreen:
             progress // 60, progress % 60, duration // 60, duration % 60
         )
 
+        art = track.get("artwork")
+        if art and art != self.artKey:
+            data = bytearray(ubinascii.a2b_base64(art))
+            self.artBuffer = framebuf.FrameBuffer(data, 32, 32, framebuf.MONO_VLSB)
+            self.artKey = art
+        elif not art:
+            self.artBuffer = None
+            self.artKey = None
+
         self.displayHandler.fill(0)
         self.displayHandler.centerText("Now Playing", 0)
-        self.displayHandler.text(track["title"][:16], 0, 20)
-        self.displayHandler.text(track["artist"][:16], 0, 32)
-        self.displayHandler.text(progressText, 0, 52)
+
+        if self.artBuffer:
+            self.displayHandler.blit(self.artBuffer, 0, 20)
+            x, width = 36, 11 # text sits to the right of the cover
+        else:
+            x, width = 0, 16
+
+        self.displayHandler.text(track["title"][:width], x, 20)
+        self.displayHandler.text(track["artist"][:width], x, 32)
+        if self.artBuffer:
+            self.displayHandler.text(track["album"][:width], x, 44)
+        self.displayHandler.text(progressText, x if self.artBuffer else 0, 56)
         self.displayHandler.show()
 
 
