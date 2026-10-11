@@ -45,8 +45,9 @@ class RecognizeScreen:
 
 
 class SpotifyScreen:
-    def __init__(self, displayHandler: DisplayHandler, spotifyService):
-        self.displayHandler = displayHandler
+    def __init__(self, displayHandler: DisplayHandler, coverDisplay: DisplayHandler, spotifyService):
+        self.displayHandler = displayHandler      # main text screen
+        self.coverDisplay = coverDisplay          # second screen, only lit during Now Playing
         self.spotifyService = spotifyService
         self.cursorPos = 0
         self.options = ["Now Playing", "Connect", "Disconnect"]
@@ -54,17 +55,36 @@ class SpotifyScreen:
         self.nowPlayingActive = False
         self.lastUpdate = 0
         self.updateInterval = 5
-        self.artKey = None
+        self.artID = None           # id of the cover we hold in artBuffer
         self.artBuffer = None
+        self.drawnID = None         # which cover is on the cover screen (None = blank)
+        self.leave()
 
-    def show(self):
+    # ----- cover screen helpers -----
+    def clearCover(self):
+        if self.drawnID is not None:
+            self.coverDisplay.fill(0)
+            self.coverDisplay.show()
+            self.drawnID = None
+
+    def leave(self):
+        """Stop Now Playing and turn the cover screen off."""
         self.nowPlayingActive = False
+        self.coverDisplay.fill(0)
+        self.coverDisplay.show()
+        self.coverDisplay.powerOff()
+        self.drawnID = None
+
+    # ----- menu -----
+    def show(self):
+        self.leave()
         self.displayHandler.fill(0)
         self.displayHandler.centerText("Spotify", 0)
         self.displayHandler.displayParamsList(self.options, self.cursorPos)
         self.displayHandler.show()
 
     def scroll(self):
+        # Scrolling while Now Playing is open goes back to the option list
         if self.nowPlayingActive:
             self.show()
             return
@@ -81,6 +101,7 @@ class SpotifyScreen:
             self.disconnect()
 
     def message(self, line1, line2=None):
+        self.clearCover()
         self.displayHandler.fill(0)
         self.displayHandler.centerText("Spotify", 0)
         self.displayHandler.centerText(line1, 24)
@@ -93,6 +114,8 @@ class SpotifyScreen:
             self.message("Not Connected")
             return
         self.nowPlayingActive = True
+        self.coverDisplay.powerOn()
+        self.drawnID = None
         self.lastUpdate = time()
         self.updateNowPlaying()
 
@@ -113,7 +136,7 @@ class SpotifyScreen:
 
     def disconnect(self):
         self.connected = False
-        self.nowPlayingActive = False
+        self.leave()
         self.message("Disconnected")
 
     def update(self):
@@ -138,36 +161,50 @@ class SpotifyScreen:
             self.message("Paused")
             return
 
+        self.drawText(track)       # text first, so the screen is never blank while the cover loads
+        self.updateCover(track)
+
+    def drawText(self, track):
         progress = track["progressMs"] // 1000
         duration = track["durationMs"] // 1000
         progressText = "%d:%02d / %d:%02d" % (
             progress // 60, progress % 60, duration // 60, duration % 60
         )
-
-        art = track.get("artwork")
-        if art and art != self.artKey:
-            data = bytearray(ubinascii.a2b_base64(art))
-            self.artBuffer = framebuf.FrameBuffer(data, 32, 32, framebuf.MONO_VLSB)
-            self.artKey = art
-        elif not art:
-            self.artBuffer = None
-            self.artKey = None
-
         self.displayHandler.fill(0)
         self.displayHandler.centerText("Now Playing", 0)
-
-        if self.artBuffer:
-            self.displayHandler.blit(self.artBuffer, 0, 20)
-            x, width = 36, 11 # text sits to the right of the cover
-        else:
-            x, width = 0, 16
-
-        self.displayHandler.text(track["title"][:width], x, 20)
-        self.displayHandler.text(track["artist"][:width], x, 32)
-        if self.artBuffer:
-            self.displayHandler.text(track["album"][:width], x, 44)
-        self.displayHandler.text(progressText, x if self.artBuffer else 0, 56)
+        self.displayHandler.text(track["title"][:16], 0, 20)
+        self.displayHandler.text(track["artist"][:16], 0, 32)
+        self.displayHandler.text(track["album"][:16], 0, 44)
+        self.displayHandler.text(progressText, 0, 56)
         self.displayHandler.show()
+
+    def updateCover(self, track):
+        wanted = track.get("artID")
+        if not wanted:
+            self.clearCover()
+            return
+
+        # Only ask the PC for the cover when the song's cover changed
+        if wanted != self.artID:
+            try:
+                reply = self.spotifyService.getArtwork()
+            except OSError:
+                self.clearCover()
+                return
+            if "art" not in reply:
+                self.clearCover()
+                return
+            data = bytearray(ubinascii.a2b_base64(reply["art"]))
+            self.artBuffer = framebuf.FrameBuffer(data, 64, 64, framebuf.MONO_VLSB)
+            self.artID = reply["id"]
+            self.drawnID = None
+
+        # Only redraw when something changed, so the screen doesn't flicker
+        if self.drawnID != self.artID:
+            self.coverDisplay.fill(0)
+            self.coverDisplay.blit(self.artBuffer, 32, 0)
+            self.coverDisplay.show()
+            self.drawnID = self.artID
 
 
 class SettingsScreen:

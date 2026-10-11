@@ -1,6 +1,7 @@
 # pip install pyserial requests
 import json
 import time
+import hashlib
 import serial
 import requests
 from artwork import getArtwork
@@ -12,6 +13,11 @@ CHUNK = 32          # the ESP32's serial input buffer is small, so send replies 
 CHUNK_DELAY = 0.02
 
 sessionID = None
+latestArtURL = None
+
+
+def artID(url):
+    return hashlib.md5(url.encode()).hexdigest()[:8]
 
 
 def api(method, path):
@@ -21,7 +27,7 @@ def api(method, path):
 
 
 def handle(path):
-    global sessionID
+    global sessionID, latestArtURL
 
     if path == "/spotify/connect":
         sessionID = api("POST", "/api/sessions")["sessionID"]
@@ -38,13 +44,15 @@ def handle(path):
         if not sessionID:
             return None
         track = api("GET", f"/api/sessions/{sessionID}/currently-playing")
-        url = track.pop("artworkURL", None)
-        if track.get("playing") and url:
-            try:
-                track["artwork"] = getArtwork(url)
-            except Exception as e:
-                print("  artwork failed:", e)    # still send the track without a cover
+        latestArtURL = track.pop("artworkURL", None)
+        if latestArtURL:
+            track["artID"] = artID(latestArtURL)     # tiny; the cover itself is fetched separately
         return track
+
+    if path == "/spotify/artwork":
+        if not latestArtURL:
+            return {"error": "no artwork"}
+        return {"id": artID(latestArtURL), "art": getArtwork(latestArtURL, 64)}
 
     return {"error": "not found"}
 

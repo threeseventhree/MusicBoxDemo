@@ -1,17 +1,18 @@
 from src.buttons import ButtonHandler
-from src.display import DisplayHandler
+from src.display import createTextDisplay, createCoverDisplay
 from src.screens import MenuScreen, RecognizeScreen, SpotifyScreen, SettingsScreen
 from src.serialClient import SerialClient
 from src.spotifyService import SpotifyService
 
-displayHandler = DisplayHandler()
+displayHandler = createTextDisplay()
+coverDisplay = createCoverDisplay()
 buttonHandler = ButtonHandler()
 
 client = SerialClient(timeout=10)
 spotifyService = SpotifyService(client)
 
 menuScreen = MenuScreen(displayHandler)
-spotifyScreen = SpotifyScreen(displayHandler, spotifyService)
+spotifyScreen = SpotifyScreen(displayHandler, coverDisplay, spotifyService)
 recognizeScreen = RecognizeScreen(displayHandler)
 settingsScreen = SettingsScreen(displayHandler)
 
@@ -41,6 +42,8 @@ while True:
 
     if not buttonHandler.backButton.value():
         if displayHandler.screen != "menu":
+            if displayHandler.screen == "spotify":
+                spotifyScreen.leave()      # turns the cover screen off
             menuScreen.show()
             displayHandler.screen = "menu"
         buttonHandler.waitForRelease(buttonHandler.backButton)

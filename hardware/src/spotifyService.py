@@ -10,3 +10,6 @@ class SpotifyService:
 
     def getCurrentlyPlaying(self):
         return self.client.get("/spotify/currently-playing")
+
+    def getArtwork(self):
+        return self.client.get("/spotify/artwork")
