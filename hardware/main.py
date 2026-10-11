@@ -1,13 +1,17 @@
-from time import sleep
 from src.buttons import ButtonHandler
 from src.display import DisplayHandler
 from src.screens import MenuScreen, RecognizeScreen, SpotifyScreen, SettingsScreen
+from src.serialClient import SerialClient
+from src.spotifyService import SpotifyService
 
 displayHandler = DisplayHandler()
 buttonHandler = ButtonHandler()
 
+client = SerialClient()
+spotifyService = SpotifyService(client)
+
 menuScreen = MenuScreen(displayHandler)
-spotifyScreen = SpotifyScreen(displayHandler)
+spotifyScreen = SpotifyScreen(displayHandler, spotifyService)
 recognizeScreen = RecognizeScreen(displayHandler)
 settingsScreen = SettingsScreen(displayHandler)
 
@@ -36,7 +40,7 @@ while True:
         buttonHandler.waitForRelease(buttonHandler.scrollButton)
 
     if not buttonHandler.backButton.value():
-        if(displayHandler.screen != "menu"):
+        if displayHandler.screen != "menu":
             menuScreen.show()
             displayHandler.screen = "menu"
         buttonHandler.waitForRelease(buttonHandler.backButton)
