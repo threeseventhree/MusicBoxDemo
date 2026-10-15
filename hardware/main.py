@@ -1,9 +1,11 @@
+from src.microphone import Microphone
 from src.buttons import ButtonHandler
 from src.display import createTextDisplay, createCoverDisplay
 from src.screens import MenuScreen, RecognizeScreen, SpotifyScreen, SettingsScreen
 from src.serialClient import SerialClient
 from src.spotifyService import SpotifyService
 
+microphone = Microphone()
 displayHandler = createTextDisplay()
 coverDisplay = createCoverDisplay()
 buttonHandler = ButtonHandler()
@@ -13,7 +15,7 @@ spotifyService = SpotifyService(client)
 
 menuScreen = MenuScreen(displayHandler)
 spotifyScreen = SpotifyScreen(displayHandler, coverDisplay, spotifyService)
-recognizeScreen = RecognizeScreen(displayHandler)
+recognizeScreen = RecognizeScreen(displayHandler, coverDisplay, microphone, client)
 settingsScreen = SettingsScreen(displayHandler)
 
 menuScreen.show()
@@ -29,6 +31,8 @@ while True:
                 settingsScreen.show()
         elif displayHandler.screen == "spotify":
             spotifyScreen.enter()
+        elif displayHandler.screen == "recognize":
+            recognizeScreen.enter()
         buttonHandler.waitForRelease(buttonHandler.enterButton)
 
     if not buttonHandler.scrollButton.value():
@@ -43,7 +47,9 @@ while True:
     if not buttonHandler.backButton.value():
         if displayHandler.screen != "menu":
             if displayHandler.screen == "spotify":
-                spotifyScreen.leave()      # turns the cover screen off
+                spotifyScreen.leave()
+            elif displayHandler.screen == "recognize":
+                recognizeScreen.leave()
             menuScreen.show()
             displayHandler.screen = "menu"
         buttonHandler.waitForRelease(buttonHandler.backButton)

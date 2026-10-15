@@ -1,4 +1,5 @@
 .venv/
+venv312/
 __pycache__/
 .env
 secrets.py
@@ -6,3 +7,5 @@ secrets.py
 node_modules/
 .vercel/
 commands.md
+capture.wav
+capture_16k.wav

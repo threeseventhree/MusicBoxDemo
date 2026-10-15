@@ -31,23 +31,79 @@ class MenuScreen:
 
 
 class RecognizeScreen:
-    def __init__(self, displayHandler: DisplayHandler):
+    def __init__(self, displayHandler: DisplayHandler, coverDisplay: DisplayHandler, microphone, client):
         self.displayHandler = displayHandler
+        self.coverDisplay = coverDisplay
+        self.microphone = microphone
+        self.client = client
+
+    def message(self, line1, line2=None):
+        self.displayHandler.fill(0)
+        self.displayHandler.centerText("Recognize Song", 0)
+        self.displayHandler.centerText(line1, 24)
+        if line2:
+            self.displayHandler.centerText(line2, 36)
+        self.displayHandler.show()
+
+    def clearCover(self):
+        self.coverDisplay.fill(0)
+        self.coverDisplay.show()
+        self.coverDisplay.powerOff()
+
+    def leave(self):
+        self.clearCover()
 
     def show(self):
-        self.displayHandler.display.fill(0)
-        self.displayHandler.centerText("Recognize Song", 0)
-        self.displayHandler.centerText("Listening...", 24)
-        self.displayHandler.display.show()
+        self.clearCover()
+        self.message("Press Enter")
 
-    def listen(self):
-        print("Testing nowPlaying")
+    def enter(self):
+        self.clearCover()
+        self.message("Listening...")
+        samples, rate = self.microphone.record()
+        self.message("Recognizing...")
+        try:
+            reply = self.client.sendAudio(samples, rate)
+        except OSError:
+            self.message("No PC link")
+            return
+        if "error" in reply:
+            self.message("Error")
+            return
+        if not reply.get("match"):
+            self.message("No match", "Try again")
+            return
+        self.showResult(reply)
+
+    def showResult(self, result):
+        self.displayHandler.fill(0)
+        self.displayHandler.centerText("Recognized", 0)
+        self.displayHandler.text(result["title"][:16], 0, 20)
+        self.displayHandler.text(result["artist"][:16], 0, 32)
+        self.displayHandler.text(result.get("album", "")[:16], 0, 44)
+        self.displayHandler.show()
+        if result.get("artID"):
+            self.showCover()
+
+    def showCover(self):
+        try:
+            reply = self.client.get("/artwork")
+        except OSError:
+            return
+        if "art" not in reply:
+            return
+        data = bytearray(ubinascii.a2b_base64(reply["art"]))
+        art = framebuf.FrameBuffer(data, 64, 64, framebuf.MONO_VLSB)
+        self.coverDisplay.powerOn()
+        self.coverDisplay.fill(0)
+        self.coverDisplay.blit(art, 32, 0)
+        self.coverDisplay.show()
 
 
 class SpotifyScreen:
     def __init__(self, displayHandler: DisplayHandler, coverDisplay: DisplayHandler, spotifyService):
-        self.displayHandler = displayHandler      # main text screen
-        self.coverDisplay = coverDisplay          # second screen, only lit during Now Playing
+        self.displayHandler = displayHandler
+        self.coverDisplay = coverDisplay
         self.spotifyService = spotifyService
         self.cursorPos = 0
         self.options = ["Now Playing", "Connect", "Disconnect"]
@@ -55,12 +111,11 @@ class SpotifyScreen:
         self.nowPlayingActive = False
         self.lastUpdate = 0
         self.updateInterval = 5
-        self.artID = None           # id of the cover we hold in artBuffer
+        self.artID = None
         self.artBuffer = None
-        self.drawnID = None         # which cover is on the cover screen (None = blank)
+        self.drawnID = None
         self.leave()
 
-    # ----- cover screen helpers -----
     def clearCover(self):
         if self.drawnID is not None:
             self.coverDisplay.fill(0)
@@ -68,14 +123,12 @@ class SpotifyScreen:
             self.drawnID = None
 
     def leave(self):
-        """Stop Now Playing and turn the cover screen off."""
         self.nowPlayingActive = False
         self.coverDisplay.fill(0)
         self.coverDisplay.show()
         self.coverDisplay.powerOff()
         self.drawnID = None
 
-    # ----- menu -----
     def show(self):
         self.leave()
         self.displayHandler.fill(0)
@@ -84,7 +137,6 @@ class SpotifyScreen:
         self.displayHandler.show()
 
     def scroll(self):
-        # Scrolling while Now Playing is open goes back to the option list
         if self.nowPlayingActive:
             self.show()
             return
@@ -123,7 +175,6 @@ class SpotifyScreen:
         self.message("Connecting...")
         try:
             self.spotifyService.connect()
-            # Poll the PC until it reports connected (about 60 s, then give up)
             for _ in range(30):
                 if self.spotifyService.isConnected():
                     self.connected = True
@@ -161,7 +212,7 @@ class SpotifyScreen:
             self.message("Paused")
             return
 
-        self.drawText(track)       # text first, so the screen is never blank while the cover loads
+        self.drawText(track)
         self.updateCover(track)
 
     def drawText(self, track):
@@ -183,8 +234,7 @@ class SpotifyScreen:
         if not wanted:
             self.clearCover()
             return
-
-        # Only ask the PC for the cover when the song's cover changed
+        
         if wanted != self.artID:
             try:
                 reply = self.spotifyService.getArtwork()
@@ -199,7 +249,6 @@ class SpotifyScreen:
             self.artID = reply["id"]
             self.drawnID = None
 
-        # Only redraw when something changed, so the screen doesn't flicker
         if self.drawnID != self.artID:
             self.coverDisplay.fill(0)
             self.coverDisplay.blit(self.artBuffer, 32, 0)
