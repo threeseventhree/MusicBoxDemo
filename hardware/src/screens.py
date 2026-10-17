@@ -2,6 +2,7 @@ from time import time, sleep
 import framebuf  # type: ignore
 import ubinascii  # type: ignore
 from src.display import DisplayHandler
+from src.qr import drawQR
 
 
 class MenuScreen:
@@ -102,8 +103,8 @@ class RecognizeScreen:
 
 class SpotifyScreen:
     def __init__(self, displayHandler: DisplayHandler, coverDisplay: DisplayHandler, spotifyService):
-        self.displayHandler = displayHandler
-        self.coverDisplay = coverDisplay
+        self.displayHandler = displayHandler      # main text screen
+        self.coverDisplay = coverDisplay          # second screen, only lit during Now Playing
         self.spotifyService = spotifyService
         self.cursorPos = 0
         self.options = ["Now Playing", "Connect", "Disconnect"]
@@ -111,11 +112,12 @@ class SpotifyScreen:
         self.nowPlayingActive = False
         self.lastUpdate = 0
         self.updateInterval = 5
-        self.artID = None
+        self.artID = None           # id of the cover we hold in artBuffer
         self.artBuffer = None
-        self.drawnID = None
+        self.drawnID = None         # which cover is on the cover screen (None = blank)
         self.leave()
 
+    # ----- cover screen helpers -----
     def clearCover(self):
         if self.drawnID is not None:
             self.coverDisplay.fill(0)
@@ -123,12 +125,14 @@ class SpotifyScreen:
             self.drawnID = None
 
     def leave(self):
+        """Stop Now Playing and turn the cover screen off."""
         self.nowPlayingActive = False
         self.coverDisplay.fill(0)
         self.coverDisplay.show()
         self.coverDisplay.powerOff()
         self.drawnID = None
 
+    # ----- menu -----
     def show(self):
         self.leave()
         self.displayHandler.fill(0)
@@ -137,6 +141,7 @@ class SpotifyScreen:
         self.displayHandler.show()
 
     def scroll(self):
+        # Scrolling while Now Playing is open goes back to the option list
         if self.nowPlayingActive:
             self.show()
             return
@@ -174,16 +179,33 @@ class SpotifyScreen:
     def connect(self):
         self.message("Connecting...")
         try:
-            self.spotifyService.connect()
+            info = self.spotifyService.connect()
+            if "qr" in info:
+                self.showLoginQR(info["qr"])
+            else:
+                self.message("Open the link", "on the PC")
+            # Poll the PC until it reports connected (about 60 s, then give up)
             for _ in range(30):
                 if self.spotifyService.isConnected():
                     self.connected = True
+                    self.leave()
                     self.message("Connected")
                     return
                 sleep(2)
+            self.leave()
             self.message("Timed out")
         except OSError:
+            self.leave()
             self.message("No PC link")
+
+    def showLoginQR(self, qr):
+        """QR code on the main screen, with a short hint to its right."""
+        right = drawQR(self.displayHandler, qr, x=2, show=False)
+        textX = right + 6
+        self.displayHandler.text("Scan", textX, 16)
+        self.displayHandler.text("with", textX, 26)
+        self.displayHandler.text("phone", textX, 36)
+        self.displayHandler.show()
 
     def disconnect(self):
         self.connected = False
@@ -212,7 +234,7 @@ class SpotifyScreen:
             self.message("Paused")
             return
 
-        self.drawText(track)
+        self.drawText(track)       # text first, so the screen is never blank while the cover loads
         self.updateCover(track)
 
     def drawText(self, track):
@@ -234,7 +256,8 @@ class SpotifyScreen:
         if not wanted:
             self.clearCover()
             return
-        
+
+        # Only ask the PC for the cover when the song's cover changed
         if wanted != self.artID:
             try:
                 reply = self.spotifyService.getArtwork()
@@ -249,6 +272,7 @@ class SpotifyScreen:
             self.artID = reply["id"]
             self.drawnID = None
 
+        # Only redraw when something changed, so the screen doesn't flicker
         if self.drawnID != self.artID:
             self.coverDisplay.fill(0)
             self.coverDisplay.blit(self.artBuffer, 32, 0)

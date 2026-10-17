@@ -6,6 +6,5 @@ secrets.py
 *.bin
 node_modules/
 .vercel/
-commands.md
 capture.wav
 capture_16k.wav

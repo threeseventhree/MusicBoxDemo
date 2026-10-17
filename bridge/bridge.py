@@ -2,35 +2,47 @@
 import json
 import time
 import traceback
+import webbrowser
 import hashlib
-import serial #type: ignore
-import requests #type: ignore
+import serial
+import requests
 from artwork import getArtwork
 from audio import saveWav, toRecognitionWav
 from recognize import recognizeSafely
-from config import BASE_URL, PORT, RECOGNIZER_PYTHON
-HTTP_TIMEOUT = 4
-CHUNK = 32
+from config import BASE_URL, PORT, RECOGNIZER_PYTHON, OPEN_LOGIN_IN_BROWSER
+from qr import makeQR
+
+HTTP_TIMEOUT = 4    # keep requests short so replies come back quickly
+CHUNK = 32          # the ESP32's serial input buffer is small, so send replies in pieces
 CHUNK_DELAY = 0.02
 
 sessionID = None
 latestArtURL = None
 
+
 def artID(url):
     return hashlib.md5(url.encode()).hexdigest()[:8]
+
 
 def api(method, path):
     r = requests.request(method, BASE_URL + path, timeout=HTTP_TIMEOUT)
     r.raise_for_status()
     return r.json()
 
+
 def handle(path):
     global sessionID, latestArtURL
+
     if path == "/spotify/connect":
         sessionID = api("POST", "/api/sessions")["sessionID"]
         url = f"{BASE_URL}/connect/{sessionID}"
         print("Open this on your phone/PC to log in to Spotify:\n ", url)
-        return {"session_id": sessionID, "url": url}
+        if OPEN_LOGIN_IN_BROWSER:
+            try:
+                webbrowser.open(url)        # opens the login page on this PC, no scanning needed
+            except Exception as e:
+                print("  could not open the browser:", e)
+        return {"session_id": sessionID, "url": url, "qr": makeQR(url)}
 
     if path == "/spotify/status":
         if not sessionID:
@@ -43,7 +55,7 @@ def handle(path):
         track = api("GET", f"/api/sessions/{sessionID}/currently-playing")
         latestArtURL = track.pop("artworkURL", None)
         if latestArtURL:
-            track["artID"] = artID(latestArtURL)
+            track["artID"] = artID(latestArtURL)     # tiny; the cover itself is fetched separately
         return track
 
     if path in ("/spotify/artwork", "/artwork"):
@@ -53,14 +65,18 @@ def handle(path):
 
     return {"error": "not found"}
 
+
 def readExact(n, limit=20):
+    """Read exactly n raw bytes from the serial port (or give up after limit seconds)."""
     data = bytearray()
     deadline = time.time() + limit
     while len(data) < n and time.time() < deadline:
         data += ser.read(n - len(data))
     return bytes(data)
 
+
 def identify(samples, rate):
+    """Recording -> Shazam -> small reply for the box (the cover is fetched separately)."""
     global latestArtURL
     path = toRecognitionWav(samples, rate)
     result = recognizeSafely(path, RECOGNIZER_PYTHON)
@@ -73,6 +89,7 @@ def identify(samples, rate):
         result["artID"] = artID(latestArtURL)
     return result
 
+
 def send(text):
     data = text.encode()
     print("  reply:", len(data), "bytes")
@@ -81,14 +98,16 @@ def send(text):
         ser.flush()
         time.sleep(CHUNK_DELAY)
 
+
 ser = serial.Serial()
 ser.port = PORT
 ser.baudrate = 115200
-ser.timeout = 1
-ser.dtr = False
+ser.timeout = 1      # so Ctrl-C works while waiting
+ser.dtr = False      # stops the ESP32 resetting when the port opens
 ser.rts = False
 ser.open()
 print("bridge running on", PORT, "(Ctrl-C to stop)")
+
 while True:
     line = ser.readline().decode(errors="ignore").strip()
     if line.startswith("@REQ "):
@@ -108,7 +127,7 @@ while True:
             if len(samples) < count:
                 reply = {"error": f"audio incomplete: {len(samples)} of {count} bytes"}
             else:
-                print("audio:", saveWav(samples, rate))
+                print("audio:", saveWav(samples, rate))      # stats + capture.wav for debugging
                 reply = identify(samples, rate)
         except Exception as e:
             traceback.print_exc()

@@ -1,0 +1,8 @@
+# Everything the PC-side bridge needs. Install with:  pip install -r venvreq.txt
+# Use Python 3.12: shazamio's compiled core crashes on Python 3.14.
+pyserial     # talks to the ESP32 over USB
+requests     # calls the web app (Spotify) and downloads album art
+qrcode       # builds the Spotify login QR code
+pillow       # shrinks album art to a black-and-white bitmap
+numpy        # audio cleanup and the hum/noise diagnostics
+shazamio     # song recognition
